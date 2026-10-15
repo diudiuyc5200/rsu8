@@ -6,7 +6,6 @@ on:
     paths:
       - '.github/workflows/build-manager.yml'
       - '.github/workflows/build-lkm.yml'
-      - '.github/workflows/ddk-lkm.yml'
       - '.github/workflows/ksud.yml'
       - '.github/workflows/ksuinit.yml'
       - '.github/riscv64-cargo.toml'
@@ -29,7 +28,7 @@ jobs:
       spoofed_package_name: ${{ steps.pkg.outputs.spoofed_package_name }}
     steps:
       - name: Generate temporary keystore
-        if: github.event_name == 'pull_request'
+        # 【改动】workflow_dispatch / push 也生成临时密钥，不再限制仅PR
         id: gen
         run: |
           KEYSTORE_PASSWORD=$(openssl rand -hex 32)
@@ -43,14 +42,13 @@ jobs:
             -validity 1 \
             -storepass "$KEYSTORE_PASSWORD" \
             -keypass "$KEY_PASSWORD" \
-            -dname "CN=KernelSU PR Build" \
+            -dname "CN=Temp Random Build" \
             -storetype JKS \
             -keystore pr-key.jks
 
           echo "keystore=$(base64 -w 0 pr-key.jks)" >> $GITHUB_OUTPUT
 
       - name: Extract certificate hash and size
-        if: github.event_name == 'pull_request'
         id: extract
         env:
           STORE_PASS: ${{ steps.gen.outputs.keystore_password }}
@@ -153,7 +151,8 @@ jobs:
           fi
 
       - name: Write key
-        if: ${{ github.event_name == 'workflow_dispatch' || ( github.event_name != 'pull_request') || github.ref_type == 'tag' }}
+        # 保留原有，但现在repack不再走这里，就算secrets不存在，这里不会阻断后续打包
+        if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || github.ref_type == 'tag' }}
         run: |
           if [ ! -z "${{ secrets.KEYSTORE }}" ]; then
             {
@@ -312,28 +311,17 @@ jobs:
 
       - name: Prepare signing inputs
         env:
-          PR_KEYSTORE: ${{ needs.prepare.outputs.keystore }}
-          PR_KEYSTORE_PASSWORD: ${{ needs.prepare.outputs.keystore_password }}
-          PR_KEY_PASSWORD: ${{ needs.prepare.outputs.key_password }}
-          PROD_KEYSTORE: ${{ secrets.KEYSTORE }}
-          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          PROD_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          PROD_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          TMP_KEYSTORE: ${{ needs.prepare.outputs.keystore }}
+          TMP_KEYSTORE_PASSWORD: ${{ needs.prepare.outputs.keystore_password }}
+          TMP_KEY_PASSWORD: ${{ needs.prepare.outputs.key_password }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "$PR_KEYSTORE" | base64 -d > pr-key.jks
-            echo "SIGN_KEYSTORE_FILE=pr-key.jks" >> $GITHUB_ENV
-            echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
-            echo "SIGN_KEYSTORE_PASSWORD=$PR_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-            echo "SIGN_KEY_PASSWORD=$PR_KEY_PASSWORD" >> $GITHUB_ENV
-          else
-            test -n "$PROD_KEYSTORE"
-            echo "$PROD_KEYSTORE" | base64 -d > key.jks
-            echo "SIGN_KEYSTORE_FILE=key.jks" >> $GITHUB_ENV
-            echo "SIGN_KEY_ALIAS=$PROD_KEY_ALIAS" >> $GITHUB_ENV
-            echo "SIGN_KEYSTORE_PASSWORD=$PROD_KEYSTORE_PASSWORD" >> $GITHUB_ENV
-            echo "SIGN_KEY_PASSWORD=$PROD_KEY_PASSWORD" >> $GITHUB_ENV
-          fi
+          # ========= 改动重点 =========
+          # 不再区分PR/正式构建，全部使用prepare产出的随机临时密钥，不再读取secrets
+          echo "$TMP_KEYSTORE" | base64 -d > temp-key.jks
+          echo "SIGN_KEYSTORE_FILE=temp-key.jks" >> $GITHUB_ENV
+          echo "SIGN_KEY_ALIAS=pr-key" >> $GITHUB_ENV
+          echo "SIGN_KEYSTORE_PASSWORD=$TMP_KEYSTORE_PASSWORD" >> $GITHUB_ENV
+          echo "SIGN_KEY_PASSWORD=$TMP_KEY_PASSWORD" >> $GITHUB_ENV
 
       - name: Repack and resign
         run: |
