@@ -25,6 +25,10 @@
 #define EXPECTED_SIZE_KOWX712 0x375
 #define EXPECTED_HASH_KOWX712 "484fcba6e6c43b1fb09700633bf2fb4758f13cb0b2f4457b80d075084b26c588"
 
+// yc520/yc520
+#define EXPECTED_SIZE_YC520 0x386
+#define EXPECTED_HASH_YC520 "492682f877607ee99df2ddd2bd5953fd727bdf6e19d397de9dbbafd582bcad75"
+
 typedef struct {
     unsigned size;
     const char *sha256;

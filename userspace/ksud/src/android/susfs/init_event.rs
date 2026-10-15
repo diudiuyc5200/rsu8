@@ -72,6 +72,19 @@ pub fn on_boot_completed() {
         return;
     }
 
+    // 以下为原 on_post_fs_data 的内容，挪到这里执行。
+    // on_boot_completed 已经 daemonize 并等待 /sdcard FUSE 挂载完成，
+    // 此时 Hybrid Mount 的挂载操作早已结束，不会与 SUSFS 抢 post-fs-data 阶段。
+    handle_result(config.apply_avc_log_spoofing(), "avc_config");
+    handle_result(config.init_sus_kstat(), "initialize sus_kstat");
+    handle_result(config.apply_logging(), "sus_log");
+    handle_result(
+        config.apply_hide_sus_mnts_for_non_su_procs(),
+        "hide sus mnts for non su procs",
+    );
+    handle_result(config.apply_uname(), "sus_uname");
+
+    // 以下为原 on_boot_completed 的内容。
     handle_result(config.apply_cmdline_or_bootconfig(), "sus_cmdline");
     handle_result(config.final_sus_kstat(), "finalize sus_kstat");
     handle_result(config.apply_sus_map(), "sus_map");
@@ -91,14 +104,8 @@ pub fn on_post_fs_data() {
         return;
     }
 
-    handle_result(config.apply_avc_log_spoofing(), "avc_config");
-    handle_result(config.init_sus_kstat(), "initialize sus_kstat");
-    handle_result(config.apply_logging(), "sus_log");
-    handle_result(
-        config.apply_hide_sus_mnts_for_non_su_procs(),
-        "hide sus mnts for non su procs",
-    );
-    handle_result(config.apply_uname(), "sus_uname");
-
-    log::info!("on_post_fs_data finished!");
+    // 原 on_post_fs_data 中的所有 apply 操作已全部移至 on_boot_completed。
+    // 在此阶段不做任何 SUSFS 下发，避免与 Hybrid Mount 等元模块在 post-fs-data
+    // 阶段抢占挂载表，导致 4.14 等老内核上出现随机卡开机 / 无限重启。
+    log::info!("SUSFS post-fs-data apply deferred to boot-completed");
 }
